@@ -150,6 +150,10 @@ sales_sdf %>%
  head
 ```
 
+### Problem
+Could you move this function to a separate file `salesData.R`, import it from there and use it here?
+
+
 ## Project 1: Predict shop's future sales (simplified version)
 
 We want predict next month total sales of a given shop.
