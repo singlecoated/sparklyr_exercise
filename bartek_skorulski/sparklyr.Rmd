@@ -1,5 +1,5 @@
 ---
-title: "Files formats"
+title: "Files formats & Predicting Future Sales"
 output:
   html_document: default
   html_notebook: default
@@ -28,7 +28,9 @@ sales_sdf %>%
   mutate(year=year(dt), month=month(dt)) %>%
   select(-dt) ->
   sales_sdf
+```
 
+```{r}
 colname <- 'shop_id'
 sales_sdf %>%
   group_by_(colname) %>%
@@ -38,12 +40,15 @@ sales_sdf %>%
     max(!!rlang::sym(colname), na.rm = TRUE),
     min(!!rlang::sym(colname), na.rm = TRUE)
   ) 
+```
 
+```{r}
 sales_sdf %>%
   spark_write_parquet(
     "../future_sales_data/sales_train.parquet",
     partition_by = c("shop_id", "year", "month"))
 ```
+
 
 ```{r}
 sales_sdf <- spark_read_parquet(sc, "sales", "../future_sales_data/sales_train.parquet/shop_id\\=0/year\\=2013/month\\=1/")
@@ -53,6 +58,7 @@ sales_sdf <- spark_read_parquet(sc, "sales", "../future_sales_data/sales_train.p
 sales_sdf <- spark_read_parquet(sc, "sales", "../future_sales_data/sales_train.parquet/shop_id\\={0, 1}/year\\=2013/month\\=1/")
 ```
 
+### There is no year
 
 ```{r}
 sales_sdf %>%
@@ -64,6 +70,8 @@ sales_sdf %>%
   mutate(year=2013) %>%
   head
 ```
+
+### Function to read from multiple sources
 
 ```{r}
 library(whisker)
@@ -141,5 +149,19 @@ About 5 mins on mac...
 sales_sdf %>%
  head
 ```
+
+## Project 1: Predict shop's future sales (simplified version)
+
+We want predict next month total sales of a given shop.
+
+Steps to do:
+
+1. Data preparation
+2. Train-test splitting
+3. Training simple linear model
+4. Evaluating: implementing MSE & R2 
+
+
+
 
 
