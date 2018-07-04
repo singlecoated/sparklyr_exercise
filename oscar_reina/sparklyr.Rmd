@@ -188,7 +188,7 @@ start_time <- Sys.time()
 sales_sdf <- read_sales(0, 2013, 1)
 sales_sdf %>%
   group_by(shop_id) %>%
-  summarise %>%
+  summarise %>%:
   print
 end_time <- Sys.time()
 end_time - start_time
@@ -201,11 +201,77 @@ We want predict next month total sales of a given shop.
 Steps to do:
 
 1. Data preparation
+
+```{r}
+sales_sdf <- spark_read_csv(sc, "sales", "../future_sales_data/sales_train.csv.gz")
+
+sales_sdf %>%
+  mutate(dt=to_timestamp(unix_timestamp(date, 'dd.MM.yyyy'))) %>%
+  mutate(year=year(dt), month=month(dt)) %>%
+  select(-dt) ->
+  sales_sdf
+
+sales_sdf %>%
+  group_by(shop_id,year,month) %>%
+  summarise(total_sales=sum(item_cnt_day,na.rm=TRUE)) ->
+  monthly_sdf 
+
+monthly_sdf
+```
 2. Train-test splitting
+```{r}
+sales_sdf %>% 
+  group_by(year,month) %>%
+  summarise %>%
+  arrange(desc(year),desc(month))
+
+train_sdf = monthly_sdf %>%
+  filter(year==2015 & month!=10)
+
+test_sdf = monthly_sdf %>%
+  filter(year==2015 & month==10)
+
+test_sdf %>%
+  count()
+```
 3. Training simple linear model
+```{r}
+train_sdf %>%
+  ml_linear_regression(total_sales ~ shop_id + year + month) ->
+  model
+
+model
+```
 4. Evaluating: implementing Mean Square Error & R2 
 
+```{r}
+train_sdf %>%
+sdf_predict(model) %>%
+  mutate(res=total_sales - prediction) %>%
+  summarise(mean(res * res)) %>%
+  print
+```
+```{r}
+test_sdf %>%
+  ml_linear_regression(total_sales ~ shop_id + year + month) ->
+  model
 
+model
+```
 
+```{r}
+test_sdf %>%
+sdf_predict(model) %>%
+  mutate(res=total_sales - prediction) %>%
+  summarise(mean(res * res)) %>%
+  print
+```
+```{r}
+train_sdf %>%
+  filter(year==2015 & month==9) %>%
+  mutate(prediction=total_sales) %>%
+  select(-total_sales) %>%
+  right_join(test_sdf,by=c('shop_id','year'))
+```
 
 
