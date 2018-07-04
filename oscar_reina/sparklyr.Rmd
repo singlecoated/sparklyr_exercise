@@ -31,6 +31,14 @@ sales_sdf %>%
 ```
 
 ```{r}
+sales_sdf %>%
+  group_by(shop_id) %>%
+  summarize %>%
+  summarise(max(shop_id),min(shop_id),n())
+```
+
+
+```{r}
 colname <- 'shop_id'
 sales_sdf %>%
   group_by_(colname) %>%
@@ -41,7 +49,17 @@ sales_sdf %>%
     min(!!rlang::sym(colname), na.rm = TRUE)
   ) 
 ```
-
+```{r}
+colname <- c('year')
+sales_sdf %>%
+  group_by_(colname) %>%
+  summarise %>%
+  summarise(
+    n(),
+    max(!!rlang::sym(colname), na.rm = TRUE),
+    min(!!rlang::sym(colname), na.rm = TRUE)
+  ) 
+```
 ```{r}
 sales_sdf %>%
   spark_write_parquet(
@@ -52,12 +70,24 @@ sales_sdf %>%
 
 ```{r}
 sales_sdf <- spark_read_parquet(sc, "sales", "../future_sales_data/sales_train.parquet/shop_id\\=0/year\\=2013/month\\=1/")
+sales_sdf %>%
+  count
 ```
+```{r}
+sales_sdf <- spark_read_parquet(sc, "sales", "../future_sales_data/sales_train.parquet/shop_id\\=0/year\\=2013/")
+sales_sdf %>%
+  count
+```
+
 
 ```{r}
 sales_sdf <- spark_read_parquet(sc, "sales", "../future_sales_data/sales_train.parquet/shop_id\\={0, 1}/year\\=2013/month\\=1/")
+sales_sdf
 ```
-
+```{r}
+sales_sdf <- spark_read_parquet(sc, "sales", "../future_sales_data/sales_train.parquet/shop_id\\={0,1,2}/year\\=2013/month\\=1/")
+sales_sdf
+```
 ### There is no year
 
 ```{r}
@@ -94,13 +124,12 @@ read_sale <- function(shop_id, year, month) {
     NULL
   }
 }
-sales_sdf <- read_sale(0, 2014, 1)
+sales_sdf <- read_sale(0, 2013, 1) # if something doesnt exist, gives null
 sales_sdf
 ```
 
-
 ```{r}
-sales_sdf <- read_sales(0, 2000, 1)
+sales_sdf <- read_sale(0, 2000, 1)
 sales_sdf
 ```
 
@@ -134,7 +163,7 @@ sales_sdf %>%
 
 ```{r}
 start_time <- Sys.time()
-sales_sdf <- read_sales(0:59, c(2013, 2014, 2015), 1:12)
+sales_sdf <- read_sales(0:2, c(2013, 2014, 2015), 1:2)
 sales_sdf %>%
   group_by(shop_id) %>%
   summarise %>%
@@ -151,8 +180,19 @@ sales_sdf %>%
 ```
 
 ### Problem
-Could you move this function to a separate file `salesData.R`, import it from there and use it here?
+# Could you move this function to a separate file `salesData.R`, import it from there and use it here?
+```{r}
+source('fun.R')
 
+start_time <- Sys.time()
+sales_sdf <- read_sales(0, 2013, 1)
+sales_sdf %>%
+  group_by(shop_id) %>%
+  summarise %>%
+  print
+end_time <- Sys.time()
+end_time - start_time
+```
 
 ## Project 1: Predict shop's future sales (simplified version)
 
@@ -163,7 +203,7 @@ Steps to do:
 1. Data preparation
 2. Train-test splitting
 3. Training simple linear model
-4. Evaluating: implementing MSE & R2 
+4. Evaluating: implementing Mean Square Error & R2 
 
 
 
