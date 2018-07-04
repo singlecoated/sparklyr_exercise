@@ -1,0 +1,7 @@
+**/football_data/*  
+**/future_sales_data/*
+**/.Rhistory
+.DS_Store
+.\#*
+**/logs/*
+**/metastore_db/*
