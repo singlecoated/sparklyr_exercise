@@ -188,7 +188,7 @@ start_time <- Sys.time()
 sales_sdf <- read_sales(0, 2013, 1)
 sales_sdf %>%
   group_by(shop_id) %>%
-  summarise %>%:
+  summarise %>%
   print
 end_time <- Sys.time()
 end_time - start_time
@@ -273,5 +273,206 @@ train_sdf %>%
   select(-total_sales) %>%
   right_join(test_sdf,by=c('shop_id','year'))
 ```
+# correlation between sales by different shops
+1. Prepare data and feature engineering
+```{r}
+sales_sdf <- spark_read_csv(sc, "sales", "../future_sales_data/sales_train.csv.gz") # this gives the sales name to the spark object
 
+sales_sdf %>%
+  head
+
+sales_sdf %>%
+  mutate(dt=to_timestamp(unix_timestamp(date, 'dd.MM.yyyy'))) %>%
+  mutate(year=year(dt), month=month(dt)) %>%
+  select(-dt) ->
+  sales_sdf
+
+sales_sdf %>%
+  group_by(year,month,shop_id) %>%
+  summarise(total_items=sum(item_cnt_day,na.rm=TRUE)) ->
+  monthly_sdf 
+
+sdf_register(monthly_sdf,"sales_monthly") # this register a spark data.frame
+
+monthly_sdf
+```
+```{r}
+library(DBI)
+dbGetQuery(
+  sc, # spark connector
+  "SELECT *
+FROM sales_monthly
+LIMIT 100")
+```
+```{r}
+monthly_sdf
+```
+1. Prepare data
+```{r}
+library(DBI)
+dbGetQuery( # ojo, this returns a local data frame, not a spark one which is remotely stored in the server and we just have a connection
+  sc, # spark connector
+  "SELECT *
+, LAG(total_items) OVER (
+        PARTITION BY shop_id ORDER BY year,month)
+        AS prev_total_item
+FROM sales_monthly") %>%
+  mutate(prediction=ifelse(is.na(prev_total_item),0,prev_total_item)) ->
+final_sdf
+
+final_sdf
+```
+
+
+2. predict from previous month
+```{r}
+test_sdf <-
+  final_sdf %>%
+  filter(year==2015 & month==10)
+
+test_sdf
+```
+```{r}
+test_sdf %>%
+  mutate(res=(prediction - total_items)) %>%
+  summarise(mean(res*res))
+```
+predict from avg of previous 3 months
+```{r}
+library(DBI)
+dbGetQuery( # ojo, this returns a local data frame, not a spark one which is remotely stored in the server and we just have a connection
+  sc, # spark connector
+  "SELECT *
+, LAG(total_items, 3) OVER (PARTITION BY shop_id ORDER BY year,month) AS prev_total_item_3
+, LAG(total_items, 2) OVER (PARTITION BY shop_id ORDER BY year,month) AS prev_total_item_2
+, LAG(total_items) OVER (PARTITION BY shop_id ORDER BY year,month) AS prev_total_item
+FROM sales_monthly") %>%
+  mutate(lag1=ifelse(is.na(prev_total_item),0,prev_total_item)) %>%
+  mutate(lag2=ifelse(is.na(prev_total_item_2),0,prev_total_item_2)) %>%
+  mutate(lag3=ifelse(is.na(prev_total_item_3),0,prev_total_item_3)) %>%
+  mutate(prediction=(lag1+lag2+lag3)/3) ->
+final_sdf
+
+final_sdf
+```
+select your test set
+```{r}
+test_sdf <-
+  final_sdf %>%
+  filter(year==2015 & month==10)
+
+test_sdf
+```
+
+```{r}
+test_sdf %>%
+  mutate(res=(prediction - total_items)) %>%
+  summarise(mean(res*res))
+```
+```{r}
+class(test_sdf)
+```
+```{r}
+boxplot(test_sdf[,c('prev_total_item','prev_total_item_2','prev_total_item_3')])
+```
+# overall refinement of prediction 
+```{r}
+pairs(test_sdf[,c('prev_total_item','prev_total_item_2','prev_total_item_3','prediction')])
+```
+# overall best shops
+```{r}
+boxplot(final_sdf$total_items~final_sdf$shop_id)
+```
+# overall best months
+```{r}
+boxplot(final_sdf$total_items~final_sdf$month)
+```
+# overall best years
+```{r}
+boxplot(final_sdf$total_items~final_sdf$year)
+```
+# overall best year and month combination
+```{r}
+boxplot(final_sdf$total_items~final_sdf$year:final_sdf$month)
+```
+# overall best year and month combination, log visualization
+```{r}
+boxplot(log(final_sdf$total_items)~final_sdf$year:final_sdf$month)
+```
+# overall best store per year
+```{r}
+boxplot(final_sdf$total_items~final_sdf$year:final_sdf$shop_id)
+```
+# correlation of total sales between years, aggregate by shop_id (defined in monthly_sdf)
+```{r}
+library(DBI)
+dbGetQuery( # ojo, this returns a local data frame, not a spark one which is remotely stored in the server and we just have a connection
+  sc, # spark connector
+  "SELECT *
+FROM sales_monthly") ->
+monthly_df
+
+head(monthly_df[order(monthly_df$shop_id),])
+```
+# correlation sales by year ?
+```{r}
+table(monthly_df$year)
+```
+# aggregate by year and shop id
+```{r}
+monthly_df2=aggregate(monthly_df$total_items,by=list(year=monthly_df$year,shop_id=monthly_df$shop_id),FUN=sum)
+monthly_df2
+table(monthly_df2$shop_id) # most should be 3
+```
+
+
+# Select shops with information for all 3 years
+```{r}
+monthly_df2$years.info = table(monthly_df2$shop_id)[as.character(monthly_df2$shop_id)]
+monthly_df2 = monthly_df2[monthly_df2$years.info==3,]
+monthly_df2
+```
+```{r}
+boxplot(monthly_df2$x ~ monthly_df2$year) # same as before
+```
+```{r}
+monthly_df3=as.data.frame(do.call(cbind,lapply(sort(unique(monthly_df2$year)),function(y) monthly_df2[monthly_df2$year==y,'x'])))
+colnames(monthly_df3)=sort(unique(monthly_df2$year))
+rownames(monthly_df3)=names(table(monthly_df2$shop_id))
+head(monthly_df3)
+```
+```{r}
+pairs(monthly_df3)
+```
+# same by months aggregate by month and shop id
+```{r}
+monthly_df2=aggregate(monthly_df$total_items,by=list(month=monthly_df$month,shop_id=monthly_df$shop_id),FUN=sum)
+monthly_df2
+table(monthly_df2$shop_id) # most should be 12
+monthly_df2
+```
+# Select shops with information for all 12 months
+```{r}
+monthly_df2$months.info = table(monthly_df2$shop_id)[as.character(monthly_df2$shop_id)]
+monthly_df2 = monthly_df2[monthly_df2$months.info==12,]
+monthly_df2
+```
+```{r}
+boxplot(monthly_df2$x ~ monthly_df2$month) # same as before
+```
+
+
+```{r}
+monthly_df3=as.data.frame(do.call(cbind,lapply(sort(unique(monthly_df2$month)),function(y) monthly_df2[monthly_df2$month==y,'x'])))
+colnames(monthly_df3)=sort(unique(monthly_df2$month))
+rownames(monthly_df3)=names(table(monthly_df2$shop_id))
+head(monthly_df3)
+```
+```{r}
+pairs(monthly_df3[,1:6])
+```
+# Pearson correlations...
+```{r}
+cor(monthly_df3)
+```
 
